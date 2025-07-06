@@ -22,7 +22,7 @@ def fit_propensity(X, T):
     
     return model
 
-def predict_propensity(model, X):
+def predict_propensity(X, model):
     """
     Predict propensity scores using the fitted model.
 

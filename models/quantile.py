@@ -38,11 +38,11 @@ class QuantileGradientBoosting:
     Trains separate models for each quantile.
     """
     def __init__(self, quantiles=[0.1, 0.9], n_estimators=100, **kwargs):
-        self.models = []
+        self.models = {}
         for q in quantiles:
             model = lgb.LGBMRegressor(objective='quantile', alpha=q,
                                       n_estimators=n_estimators, **kwargs)
-            self.models.append(model)
+            self.models[q] = model
         self.quantiles = quantiles
 
     def fit(self, X, y):
@@ -53,17 +53,29 @@ class QuantileGradientBoosting:
         - X (array-like): Feature matrix.
         - y (array-like): Target values.
         """
-        for model in self.models:
+        for model in self.models.values():
             model.fit(X, y)
 
-    def predict(self, X):
+    def predict(self, X, quantiles=None):
         """
-        Predict quantiles using fitted LightGBM models.
-        
+        Predict specified quantiles using LightGBM models.
+
+        Parameters:
+        - X: Feature matrix
+        - quantiles: Optional[List[float]] (defaults to self.quantiles)
+
         Returns:
-        - np.ndarray: Predicted quantiles with shape (n_samples, n_quantiles).
+        - np.ndarray: shape (n_samples, len(quantiles))
         """
-        preds = [model.predict(X) for model in self.models]
+        if quantiles is None:
+            quantiles = self.quantiles
+
+        preds = []
+        for q in quantiles:
+            if q in self.models:
+                preds.append(self.models[q].predict(X))
+            else:
+                raise ValueError(f"Quantile {q} not available in trained models.")
         return np.stack(preds, axis=1)
 
 class GradientBoostingRegressorWrapper:
