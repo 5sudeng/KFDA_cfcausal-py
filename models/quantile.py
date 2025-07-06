@@ -1,41 +1,8 @@
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.ensemble import GradientBoostingRegressor
-from skgarden import RandomForestQuantileRegressor
 from bartpy.sklearnmodel import SklearnModel
 import lightgbm as lgb
 import numpy as np
-
-class QuantileRandomForest:
-    """
-    Quantile Random Forest regressor using skgarden.
-    
-    Predicts conditional quantiles of the response variable.
-    """
-    def __init__(self, quantiles=[0.1, 0.9], **kwargs):
-        self.quantiles = quantiles
-        self.model = RandomForestQuantileRegressor(**kwargs)
-
-    def fit(self, X, y):
-        """
-        Fit the quantile random forest model.
-
-        Parameters:
-        - X (array-like): Feature matrix.
-        - y (array-like): Target values.
-        """
-        self.model.fit(X, y)
-
-    def predict(self, X):
-        """
-        Predict quantiles for the input features.
-
-        Returns:
-        - np.ndarray: Predicted quantiles with shape (n_samples, n_quantiles).
-        """
-        preds = []
-        for q in self.quantiles:
-            preds.append(self.model.predict(X, quantile=q * 100))
-        return np.stack(preds, axis=1)
 
 class RandomForestRegressorWrapper:
     """
