@@ -1,7 +1,7 @@
 import numpy as np
 from utils.weighted_quantile import weighted_quantile
 
-def weighted_cqr(Y_cal, quantile_preds, sample_weight, alpha=0.1):
+def weighted_split_cqr(Y_cal, quantile_preds, sample_weight, alpha=0.1):
     """
     Perform Weighted Conformalized Quantile Regression (CQR).
 
