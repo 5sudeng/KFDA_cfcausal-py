@@ -6,7 +6,7 @@ from algorithms.unweighted_ci import unweighted_ci
 from utils.data_utils import split_by_treatment
 
 
-def estimate_ite_interval(Z, X_new, mode="ATE", alpha=0.1, quantile_model=None, q_lo=None, q_hi=None):
+def estimate_ite_interval(Z, X_new, user_ids=None, mode="ATE", alpha=0.1, quantile_model=None, q_lo=None, q_hi=None):
     """
     Estimate ITE intervals for new samples X_new given training data Z = [X, T, Y].
 
@@ -18,7 +18,8 @@ def estimate_ite_interval(Z, X_new, mode="ATE", alpha=0.1, quantile_model=None, 
         quantile_model: a model that implements fit(X, Y) and predict(X, quantiles)
 
     Returns:
-        Dictionary with keys "lower" and "upper", each an ndarray of shape (m,)
+        Dictionary with keys "lower" and "upper", each an ndarray of shape (m,).
+        Also includes "user_id" if user_ids is provided.
     """
     if q_lo is None or q_hi is None:
         q_lo, q_hi = alpha / 2, 1 - alpha / 2
@@ -70,4 +71,12 @@ def estimate_ite_interval(Z, X_new, mode="ATE", alpha=0.1, quantile_model=None, 
 
     lower = intervals[1]["lower"] - intervals[0]["upper"]
     upper = intervals[1]["upper"] - intervals[0]["lower"]
-    return {"lower": lower, "upper": upper}
+    return {
+        "lower": lower,
+        "upper": upper,
+        "user_id": user_ids,
+        "y0_cf_lower": intervals[0]["lower"],
+        "y0_cf_upper": intervals[0]["upper"],
+        "y1_cf_lower": intervals[1]["lower"],
+        "y1_cf_upper": intervals[1]["upper"]
+    }
