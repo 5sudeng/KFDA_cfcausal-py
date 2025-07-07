@@ -6,6 +6,8 @@ import argparse
 import numpy as np
 import pandas as pd
 
+from sklearn.preprocessing import OneHotEncoder
+
 from utils.data_utils import load_dataset, split_train_calibration
 from models.quantile import QuantileGradientBoosting
 from models.propensity import fit_propensity, predict_propensity
@@ -30,17 +32,51 @@ def get_quantile_model(name: str, quantiles):
 # -----------------------------------------------------------------------------#
 def main(args):
     # 1. Load data
-    Z = load_dataset(args.data).values  # DataFrame -> ndarray
-    X_new = Z[:, :-2]  # test on training features for demo
+    df = load_dataset(args.data)
+    
+    # Remove rows with NaNs in relevant covariates
+    covariate_cols = ["age", "education", "gender", "occupation", "hospital", "BMI", "height", "weight", "ldl_value_before_trt"]
+    df = df[df[covariate_cols].notnull().all(axis=1)]
+    print(f"[INFO] After dropping NaNs, data shape: {df.shape}")
+    user_ids = df["user_id"].values
+
+    X_raw = df[["age", "education", "gender", "occupation", "hospital", "BMI", "height", "weight", "ldl_value_before_trt"]]
+
+    categorical_cols = ["education", "gender", "occupation", "hospital"]
+    numerical_cols = [col for col in X_raw.columns if col not in categorical_cols]
+
+    # One-hot encoding
+    encoder = OneHotEncoder(sparse_output=False, handle_unknown="ignore")
+    X_cat = encoder.fit_transform(X_raw[categorical_cols])
+    X_new = np.hstack([X_raw[numerical_cols].values, X_cat])
+
+    T = df["treated"].values
+    Y = df["ldl_value_after_trt"].values
+
+    # Remove rows with missing Y for treated
+    valid_idx = ~((T == 1) & np.isnan(Y))
+    X_new = X_new[valid_idx]
+    T = T[valid_idx]
+    Y = Y[valid_idx]
+    user_ids = user_ids[valid_idx]
+
+    # Remove any remaining NaNs in Y (regardless of T)
+    nan_mask = ~np.isnan(Y)
+    X_new = X_new[nan_mask]
+    T = T[nan_mask]
+    Y = Y[nan_mask]
+    user_ids = user_ids[nan_mask]
 
     # 2. Choose quantile model
     q_lo, q_hi = args.alpha, 1 - args.alpha
     q_model = get_quantile_model(args.quantile_model, (q_lo, q_hi))
 
     # 3. Run ITE interval estimation
+    Z = np.column_stack([X_new, T, Y])
     res = estimate_ite_interval(
-        Z,
-        X_new,
+        Z=Z,
+        X_new=X_new,
+        user_ids=user_ids,
         mode=args.mode,
         alpha=args.alpha,
         quantile_model=q_model,
@@ -48,36 +84,30 @@ def main(args):
         q_hi=q_hi,
     )
 
-    # 4. Print summary
-    print("=== ITE Interval Summary ===")
-    print(f"lower (first 5): {res['lower'][:5]}")
-    print(f"upper (first 5): {res['upper'][:5]}")
-    print(f"Avg length     : {np.mean(res['upper'] - res['lower']):.4f}")
+    # 4. Filter treated individuals
+    treated_mask = T == 1
+    user_ids_treated = user_ids[treated_mask]
+    Y1 = Y[treated_mask]
 
-    # 5. Save results
+    # 5. Compute counterfactual (Y0) interval from result
+    Y0_lower = res["y0_cf_lower"][treated_mask]
+    Y0_upper = res["y0_cf_upper"][treated_mask]
+    ITE_lower = Y1 - Y0_upper  # conservative lower bound
+    ITE_upper = Y1 - Y0_lower  # conservative upper bound
+
+    # 6. Save treated individuals’ ITE intervals
     output_df = pd.DataFrame({
-        "lower": res["lower"],
-        "upper": res["upper"],
-        "length": res["upper"] - res["lower"]
+        "user_id": user_ids_treated,
+        "treated": 1,
+        "factual_y1": Y1,
+        "cf_y0_lower": Y0_lower,
+        "cf_y0_upper": Y0_upper,
+        "ite_lower": ITE_lower,
+        "ite_upper": ITE_upper,
     })
-    output_path = f"results/{args.mode}_results.csv"
+    output_path = f"results/{args.mode}_treated_counterfactual_results.csv"
     output_df.to_csv(output_path, index=False)
-    print(f"Saved results to: {output_path}")
-
-    # Save summary CSV for comparison with literature
-    coverage = np.nan
-    if 'true' in res:
-        coverage = np.mean((res['lower'] <= res['true']) & (res['true'] <= res['upper']))
-    interval_length = np.mean(res["upper"] - res["lower"])
-    summary_df = pd.DataFrame([{
-        "method": f"{args.mode}_{args.quantile_model}",
-        "cr": float(coverage) if not np.isnan(coverage) else np.nan,
-        "len": interval_length,
-        "alpha": args.alpha
-    }])
-    summary_path = f"results/{args.mode}_summary.csv"
-    summary_df.to_csv(summary_path, index=False)
-    print(f"Saved summary to: {summary_path}")
+    print(f"Saved treated-counterfactual results to: {output_path}")
 
 
 if __name__ == "__main__":
