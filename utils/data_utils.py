@@ -14,13 +14,13 @@ def load_dataset(path):
     
     return pd.read_csv(path)
 
-def split_train_calibration(data, train_ratio=0.8, seed=42):
+def split_train_calibration(data, split_ratio=0.8, seed=42):
     """
     Split the dataset into training and calibration sets. (Applied stratified split)
     
     Parameters:
     data (pd.DataFrame): The dataset to split.
-    train_ratio (float): The proportion of the dataset to include in the training set.
+    split_ratio (float): The proportion of the dataset to include in the training set.
     seed (int): Random seed for reproducibility.
     
     Returns:
@@ -29,8 +29,8 @@ def split_train_calibration(data, train_ratio=0.8, seed=42):
     
     train_data, calibration_data = train_test_split(
         data,
-        train_size=train_ratio,
-        stratify=data['treatment'],
+        train_size=split_ratio,
+        # stratify=data['treated'],
         random_state=seed
     )
     return train_data, calibration_data
@@ -47,7 +47,7 @@ def split_by_treatment(dataset, treatment_col='treatment'):
     Tuple[pd.DataFrame, pd.DataFrame]: The treated and control datasets.
     """
     
-    treated_df = data[data[treatment_col] == 1]
-    control_df = data[data[treatment_col] == 0]
+    treated_df = dataset[dataset[treatment_col] == 1]
+    control_df = dataset[dataset[treatment_col] == 0]
     
     return treated_df, control_df

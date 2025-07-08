@@ -5,6 +5,7 @@ from models.propensity import fit_propensity, predict_propensity
 from algorithms.weighted_cqr import weighted_split_cqr
 from algorithms.unweighted_ci import unweighted_ci
 from utils.data_utils import split_by_treatment
+from sklearn.model_selection import train_test_split
 
 
 def estimate_ite_interval(Z, X_new, user_ids=None, mode="ATT", alpha=0.1, quantile_model=None, q_lo=None, q_hi=None, T=None, Y=None):
@@ -16,7 +17,7 @@ def estimate_ite_interval(Z, X_new, user_ids=None, mode="ATT", alpha=0.1, quanti
         X_new: ndarray of shape (m, d), new treated input samples
         user_ids: optional, user ID mapping
         mode: str, one of {"ATT"} supported for now
-        alpha: significance level (default 0.1 → 90% CI)
+        alpha: significance level (default 0.1 -> 90% CI)
         quantile_model: model implementing fit(X, Y) and predict(X, quantiles)
         q_lo/q_hi: optional, lower/upper quantiles (defaults to alpha/2, 1-alpha/2)
 
@@ -26,40 +27,59 @@ def estimate_ite_interval(Z, X_new, user_ids=None, mode="ATT", alpha=0.1, quanti
     if q_lo is None or q_hi is None:
         q_lo, q_hi = alpha / 2, 1 - alpha / 2
 
-    # Step 1: Decompose input
+    # Step 0: Split into Z1 (train) and Z2 (estimation)
     if T is None or Y is None:
-        X = Z[:, :-2]
-        T = Z[:, -2].astype(int)
-        Y = Z[:, -1]
+        # Assume Z = [X, T, Y]
+        Z1, Z2 = train_test_split(Z, test_size=0.5, random_state=42)
+        X1, T1, Y1 = Z1[:, :-2], Z1[:, -2].astype(int), Z1[:, -1]
+        X2, T2, Y2 = Z2[:, :-2], Z2[:, -2].astype(int), Z2[:, -1]
     else:
-        X = Z
+        # If T and Y are passed separately, then assume Z = X
+        Z_combined = np.column_stack([Z, T, Y])
+        Z1, Z2 = train_test_split(Z_combined, test_size=0.5, random_state=42)
+        X1, T1, Y1 = Z1[:, :-2], Z1[:, -2].astype(int), Z1[:, -1]
+        X2, T2, Y2 = Z2[:, :-2], Z2[:, -2].astype(int), Z2[:, -1]
 
-    # Step 2: Split data based on mode
+    # Z1 = training set for CQR / calibration (dksl used to fit quantiles and conformal interval)
+    # Z2 = evaluation set where counterfactual inference and ITE estimation are applied
+
+    # Step 1: Decompose input
+    # Use X2, T2, Y2 for estimation
+    X = X2
+    T = T2
+    Y = Y2
+
+    # Step 2: From Z1 -> training set (control), from Z2 -> target treated samples (to evaluate ITE)
     if mode == "ATT":
-        X_train, Y_train = X[T == 0], Y[T == 0]
+        X_train, Y_train = X1[T1 == 0], Y1[T1 == 0]
         X_target, Y_target = X[T == 1], Y[T == 1]
     elif mode == "ATC":
-        X_train, Y_train = X[T == 1], Y[T == 1]
+        X_train, Y_train = X1[T1 == 1], Y1[T1 == 1]
         X_target, Y_target = X[T == 0], Y[T == 0]
     elif mode == "ATE":
-        X_train, Y_train = X, Y
+        X_train, Y_train = X1, Y1
         X_target, Y_target = X, Y
     else:
         raise ValueError(f"Unsupported mode: {mode}")
 
     # Step 3: Compute weights for training set
-    e_model = fit_propensity(X, T)
+    e_model = fit_propensity(X1, T1)
     T_train = np.zeros_like(Y_train)  # Placeholder T values for weighting
-    e_x = predict_propensity(X_train, e_model)
-    w = get_weight(X_train, T_train, mode=mode, e_x=e_x)
+    e_x1 = predict_propensity(X_train, e_model)
+    w = get_weight(X_train, T_train, mode=mode, e_x=e_x1)
 
     print("[DEBUG] weight w (first 10):", w[:10])
     print("[DEBUG] weight w (mean/std):", np.mean(w), np.std(w))
 
+    # Step 3.5: Split X_train/Y_train/w into calibration and training sets
+    X_tr, X_cal, Y_tr, Y_cal, w_tr, w_cal = train_test_split(
+        X_train, Y_train, w, test_size=0.5, random_state=42
+    )
+
     # Step 4: Fit quantile model
     column_names = [f"x{i}" for i in range(X.shape[1])]
-    X_train_df = pd.DataFrame(X_train, columns=column_names)
-    quantile_model.fit(X_train_df, Y_train)
+    X_tr_df = pd.DataFrame(X_tr, columns=column_names)
+    quantile_model.fit(X_tr_df, Y_tr)
 
     # Step 5: Predict counterfactual quantiles for target group
     X_new_df = pd.DataFrame(X_target, columns=column_names)
@@ -81,8 +101,14 @@ def estimate_ite_interval(Z, X_new, user_ids=None, mode="ATT", alpha=0.1, quanti
 
     quantile_preds = np.column_stack([q_lo_pred, q_hi_pred])
 
-    # Step 6: Construct CI for counterfactual outcome of target group
-    quantile_preds_cal = quantile_model.predict(X_train_df, quantiles=[q_lo, q_hi])
+    # Step 5.5: Compute test-time sample weight w(x) for eta(x)
+    e_x_target = predict_propensity(X_target, e_model)
+    T_target_placeholder = np.zeros_like(Y_target)
+    w_x = get_weight(X_target, T_target_placeholder, mode=mode, e_x=e_x_target)
+
+    # Step 6: Use Z1 (training/calibration set) for weighted conformal inference
+    X_cal_df = pd.DataFrame(X_cal, columns=column_names)
+    quantile_preds_cal = quantile_model.predict(X_cal_df, quantiles=[q_lo, q_hi])
     if isinstance(quantile_preds_cal, list):
         pred_lo_c, pred_hi_c = quantile_preds_cal[0].ravel(), quantile_preds_cal[1].ravel()
     else:
@@ -90,10 +116,11 @@ def estimate_ite_interval(Z, X_new, user_ids=None, mode="ATT", alpha=0.1, quanti
 
     calibration_preds = np.column_stack([pred_lo_c, pred_hi_c])
     C = weighted_split_cqr(
-        Y_cal=Y_train,
+        Y_cal=Y_cal,
         quantile_preds=calibration_preds,
-        sample_weight=w,
-        alpha=alpha
+        sample_weight=w_cal,
+        alpha=alpha,
+        test_weight=w_x  # Pass test-time sample weights for proper eta(x) computation
     )
 
     if isinstance(C, dict):
