@@ -40,5 +40,6 @@ def predict_propensity(X, model):
     """
     
     propensity_scores = model.predict_proba(X)[:, 1]
+    print("[DEBUG][DEBUG][DEBUG][DEBUG] Propensity scores (first 10):", propensity_scores[:10])
     
     return propensity_scores
