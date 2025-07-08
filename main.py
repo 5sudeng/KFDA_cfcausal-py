@@ -1,5 +1,5 @@
 """
-python main.py --data data/{} --mode {} --alpha {} --quantile_model {}
+python main.py --data data/250707_statin_ldl.csv --mode ATT --alpha 0.1 --quantile_model qgb
 """
 
 import argparse
@@ -51,22 +51,16 @@ def main(args):
     X_cat = encoder.fit_transform(X_raw[categorical_cols])
     X_new = np.hstack([X_raw[numerical_cols].values, X_cat])
 
+    # Outcome Y: ldl_value_after_trt for *all* users (controls included)
     T = df["treated"].values
-    Y = df["ldl_value_after_trt"].values
+    Y = df["ldl_value_after_trt"].values  # use the post‑measurement for every user
 
-    # Remove rows with missing Y for treated
-    valid_idx = ~((T == 1) & np.isnan(Y))
-    X_new = X_new[valid_idx]
-    T = T[valid_idx]
-    Y = Y[valid_idx]
+    # Drop any rows where Y is missing
+    valid_idx = ~np.isnan(Y)
+    X_new   = X_new[valid_idx]
+    T       = T[valid_idx]
+    Y       = Y[valid_idx]
     user_ids = user_ids[valid_idx]
-
-    # Remove any remaining NaNs in Y (regardless of T)
-    nan_mask = ~np.isnan(Y)
-    X_new = X_new[nan_mask]
-    T = T[nan_mask]
-    Y = Y[nan_mask]
-    user_ids = user_ids[nan_mask]
 
     # 2. Choose quantile model
     q_lo, q_hi = args.alpha, 1 - args.alpha
@@ -74,11 +68,17 @@ def main(args):
 
     # 3. Run ITE interval estimation
     Z = np.column_stack([X_new, T, Y])
+
+    Z1, Z2 = split_train_calibration(Z, seed=42, split_ratio=0.5)
+    user_ids1, user_ids2 = split_train_calibration(user_ids, seed=42, split_ratio=0.5)
+
     print("[DEBUG] Starting ITE estimation")
     res = estimate_ite_interval(
         Z=Z,
+        # Z1=Z1,
+        # Z2=Z2,
         X_new=X_new,
-        user_ids=user_ids,
+        user_ids=user_ids2,
         mode=args.mode,
         alpha=args.alpha,
         quantile_model=q_model,
@@ -103,8 +103,10 @@ def main(args):
     # Populate only relevant parts
     if res.get("y0_cf_lower") is not None:
         print("[DEBUG] assigning cf_y0 to treated group:", res["y0_cf_lower"][:5], res["y0_cf_upper"][:5])
-        cf_y0_lower_full[is_treated] = res["y0_cf_lower"]
-        cf_y0_upper_full[is_treated] = res["y0_cf_upper"]
+        idx_user_ids2 = pd.Series(user_ids).isin(user_ids2)
+        treated_in_userids2_idx = np.where((T == 1) & idx_user_ids2)[0]
+        cf_y0_lower_full[treated_in_userids2_idx] = res["y0_cf_lower"]
+        cf_y0_upper_full[treated_in_userids2_idx] = res["y0_cf_upper"]
     if res.get("y1_cf_lower") is not None:
         cf_y1_lower_full[~is_treated] = res["y1_cf_lower"]
         cf_y1_upper_full[~is_treated] = res["y1_cf_upper"]
