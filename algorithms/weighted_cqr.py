@@ -51,8 +51,7 @@ def weighted_split_cqr(
     q_hat_list = []
     for w_x in test_weight:
         # Probability mass p_i  
-        p_i = sample_weight / (sample_weight + w_x)
-        p_i /= p_i.sum()  # normalise
+        p_i = sample_weight / (sample_weight.sum() + w_x)
 
         # (1 − alpha)‑quantile of conformity scores under p_i
         q_hat = weighted_quantile(
