@@ -5,6 +5,7 @@ python main.py --data data/{} --mode {} --alpha {} --quantile_model {}
 import argparse
 import numpy as np
 import pandas as pd
+import inspect
 
 from sklearn.preprocessing import OneHotEncoder
 
@@ -73,6 +74,7 @@ def main(args):
 
     # 3. Run ITE interval estimation
     Z = np.column_stack([X_new, T, Y])
+    print("[DEBUG] Starting ITE estimation")
     res = estimate_ite_interval(
         Z=Z,
         X_new=X_new,
@@ -82,32 +84,60 @@ def main(args):
         quantile_model=q_model,
         q_lo=q_lo,
         q_hi=q_hi,
+        T=T,
+        Y=Y,
+    )
+    print("[DEBUG] res['y0_cf_lower'] sample:", res.get("y0_cf_lower")[:5] if res.get("y0_cf_lower") is not None else "None")
+    print("[DEBUG] res['y1_cf_lower'] sample:", res.get("y1_cf_lower")[:5] if res.get("y1_cf_lower") is not None else "None")
+
+    # 4. Separate factual and counterfactual outcome intervals
+    is_treated = T == 1
+    factual_y = Y
+
+    # Initialize full-length arrays
+    cf_y0_lower_full = np.full_like(factual_y, np.nan)
+    cf_y0_upper_full = np.full_like(factual_y, np.nan)
+    cf_y1_lower_full = np.full_like(factual_y, np.nan)
+    cf_y1_upper_full = np.full_like(factual_y, np.nan)
+
+    # Populate only relevant parts
+    if res.get("y0_cf_lower") is not None:
+        print("[DEBUG] assigning cf_y0 to treated group:", res["y0_cf_lower"][:5], res["y0_cf_upper"][:5])
+        cf_y0_lower_full[is_treated] = res["y0_cf_lower"]
+        cf_y0_upper_full[is_treated] = res["y0_cf_upper"]
+    if res.get("y1_cf_lower") is not None:
+        cf_y1_lower_full[~is_treated] = res["y1_cf_lower"]
+        cf_y1_upper_full[~is_treated] = res["y1_cf_upper"]
+
+    # Conservative ITE intervals
+    ite_lower = np.where(
+        is_treated, 
+        factual_y - cf_y0_upper_full,  # Y1 - Y0_upper
+        cf_y1_lower_full - factual_y   # Y1_lower - Y0
+    )
+    ite_upper = np.where(
+        is_treated, 
+        factual_y - cf_y0_lower_full,  # Y1 - Y0_lower
+        cf_y1_upper_full - factual_y   # Y1_upper - Y0
     )
 
-    # 4. Filter treated individuals
-    treated_mask = T == 1
-    user_ids_treated = user_ids[treated_mask]
-    Y1 = Y[treated_mask]
-
-    # 5. Compute counterfactual (Y0) interval from result
-    Y0_lower = res["y0_cf_lower"][treated_mask]
-    Y0_upper = res["y0_cf_upper"][treated_mask]
-    ITE_lower = Y1 - Y0_upper  # conservative lower bound
-    ITE_upper = Y1 - Y0_lower  # conservative upper bound
-
-    # 6. Save treated individuals’ ITE intervals
+    # Save all individuals' ITE intervals
     output_df = pd.DataFrame({
-        "user_id": user_ids_treated,
-        "treated": 1,
-        "factual_y1": Y1,
-        "cf_y0_lower": Y0_lower,
-        "cf_y0_upper": Y0_upper,
-        "ite_lower": ITE_lower,
-        "ite_upper": ITE_upper,
+        "user_id": user_ids,
+        "treated": T,
+        "factual_outcome": factual_y,
+        "cf_y0_lower": cf_y0_lower_full,
+        "cf_y0_upper": cf_y0_upper_full,
+        "cf_y1_lower": cf_y1_lower_full,
+        "cf_y1_upper": cf_y1_upper_full,
+        "ite_lower": ite_lower,
+        "ite_upper": ite_upper,
     })
-    output_path = f"results/{args.mode}_treated_counterfactual_results.csv"
+    output_path = f"results/{args.mode}_ITE_interval_results.csv"
+    print("[DEBUG] Sample output_df:")
+    print(output_df.head())
     output_df.to_csv(output_path, index=False)
-    print(f"Saved treated-counterfactual results to: {output_path}")
+    print(f"[INFO] Saved ITE interval results to: {output_path}")
 
 
 if __name__ == "__main__":
