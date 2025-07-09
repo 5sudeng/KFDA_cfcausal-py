@@ -94,11 +94,6 @@ def estimate_ite_interval(Z, X_new, user_ids=None, mode="ATT", alpha=0.1, quanti
         if len(user_ids) != len(X_target):
             raise ValueError(f"Filtered user_ids length ({len(user_ids)}) does not match target samples ({len(X_target)})")
 
-    print("[DEBUG] q_lo_pred (first 5):", q_lo_pred[:5])
-    print("[DEBUG] q_hi_pred (first 5):", q_hi_pred[:5])
-    print("[DEBUG] Unique values in q_lo_pred:", np.unique(q_lo_pred[:10]))
-    print("[DEBUG] Unique values in q_hi_pred:", np.unique(q_hi_pred[:10]))
-
     quantile_preds = np.column_stack([q_lo_pred, q_hi_pred])
 
     # Step 5.5: Compute test-time sample weight w(x) for eta(x)
@@ -131,14 +126,6 @@ def estimate_ite_interval(Z, X_new, user_ids=None, mode="ATT", alpha=0.1, quanti
         mid = (q_lo_pred + q_hi_pred) / 2.0
         C_L = mid - C
         C_R = mid + C
-
-    print("[DEBUG] pred_lo_c std:", np.std(pred_lo_c))
-    print("[DEBUG] pred_hi_c std:", np.std(pred_hi_c))
-
-    print("[DEBUG] C_L[:5]:", C_L[:5])
-    print("[DEBUG] C_R[:5]:", C_R[:5])
-    print("[DEBUG] C_L std:", np.std(C_L))
-    print("[DEBUG] C_R std:", np.std(C_R))
 
     # Step 7: Construct CI for counterfactual outcome
     y0_cf_lower, y0_cf_upper = C_L, C_R
