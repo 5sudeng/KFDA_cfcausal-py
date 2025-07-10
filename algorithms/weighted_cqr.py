@@ -12,7 +12,7 @@ def weighted_split_cqr(
     Parameters
     ----------
     Y_cal : array-like, shape (n_cal,)
-        True outcomes on the *calibration* split.
+        True outcomes on the calibration split.
     quantile_preds : array-like, shape (n_cal, 2)
         Predicted lower / upper quantiles on the calibration split;
         column 0 = \hat q_alpha/2, column 1 = \hat q_{1‑alpha/2}.

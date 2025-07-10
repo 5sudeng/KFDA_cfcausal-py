@@ -139,11 +139,6 @@ def estimate_ite_interval(Z, X_new, user_ids=None, mode="ATT", alpha=0.1, quanti
     ite_lower = Y_target - y0_cf_upper
     ite_upper = Y_target - y0_cf_lower
 
-    print("[DEBUG] y0_cf_lower (first 5):", y0_cf_lower[:5])
-    print("[DEBUG] y0_cf_upper (first 5):", y0_cf_upper[:5])
-    print("[DEBUG] ITE lower (first 5):", ite_lower[:5])
-    print("[DEBUG] ITE upper (first 5):", ite_upper[:5])
-
     result = {
         "lower": ite_lower,
         "upper": ite_upper,

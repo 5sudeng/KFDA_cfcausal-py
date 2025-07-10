@@ -36,9 +36,9 @@ class QuantileGradientBoosting:
     """
     LightGBM‑based Quantile Gradient Boosting.
 
-    ▸ Trains one LightGBM model per requested quantile.  
-    ▸ Allows custom LightGBM hyper‑parameters via *lgbm_params*.  
-    ▸ Passes *sample_weight* through to LightGBM to respect inverse‑probability
+    - Trains one LightGBM model per requested quantile.  
+    - Allows custom LightGBM hyper‑parameters via lgbm_params.  
+    - Passes sample_weight through to LightGBM to respect inverse‑probability
       weights when available.  
     """
 
@@ -66,7 +66,6 @@ class QuantileGradientBoosting:
             quantiles = [0.1, 0.9]
 
         default_params = {
-            # core
             "objective": "quantile",
             "num_leaves": 31,
             "min_child_samples": 5,
@@ -74,7 +73,7 @@ class QuantileGradientBoosting:
             "subsample": 0.8,
             "colsample_bytree": 0.8,
             "random_state": 42,
-            "verbose": -1,          # suppress LightGBM training warnings
+            "verbose": -1,         
         }
         if lgbm_params is not None:
             default_params.update(lgbm_params)
