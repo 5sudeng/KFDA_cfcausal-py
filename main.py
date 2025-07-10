@@ -108,8 +108,10 @@ def main(args):
         cf_y0_lower_full[treated_in_userids2_idx] = res["y0_cf_lower"]
         cf_y0_upper_full[treated_in_userids2_idx] = res["y0_cf_upper"]
     if res.get("y1_cf_lower") is not None:
-        cf_y1_lower_full[~is_treated] = res["y1_cf_lower"]
-        cf_y1_upper_full[~is_treated] = res["y1_cf_upper"]
+        idx_user_ids2 = pd.Series(user_ids).isin(user_ids2)
+        untreated_in_userids2_idx = np.where((T == 0) & idx_user_ids2)[0]
+        cf_y1_lower_full[untreated_in_userids2_idx] = res["y1_cf_lower"]
+        cf_y1_upper_full[untreated_in_userids2_idx] = res["y1_cf_upper"]
 
     # Conservative ITE intervals
     ite_lower = np.where(
@@ -135,7 +137,7 @@ def main(args):
         "ite_lower": ite_lower,
         "ite_upper": ite_upper,
     })
-    output_path = f"results/{args.mode}_ITE_interval_results.csv"
+    output_path = f"results/{args.mode}_test.csv"
     print("[DEBUG] Sample output_df:")
     print(output_df.head())
     output_df.to_csv(output_path, index=False)

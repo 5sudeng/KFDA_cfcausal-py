@@ -64,7 +64,12 @@ def estimate_ite_interval(Z, X_new, user_ids=None, mode="ATT", alpha=0.1, quanti
 
     # Step 3: Compute weights for training set
     e_model = fit_propensity(X1, T1)
-    T_train = np.zeros_like(Y_train)  # Placeholder T values for weighting
+    if mode == "ATT":
+        T_train = np.zeros_like(Y_train)  # treated <- control
+    elif mode == "ATC":
+        T_train = np.ones_like(Y_train)   # control <- treated
+    else:
+        T_train = T1  # use true T1 if mode == ATE
     e_x1 = predict_propensity(X_train, e_model)
     w = get_weight(X_train, T_train, mode=mode, e_x=e_x1)
 
@@ -128,7 +133,12 @@ def estimate_ite_interval(Z, X_new, user_ids=None, mode="ATT", alpha=0.1, quanti
         C_R = mid + C
 
     # Step 7: Construct CI for counterfactual outcome
-    y0_cf_lower, y0_cf_upper = C_L, C_R
+    y0_cf_lower, y0_cf_upper = None, None
+    y1_cf_lower, y1_cf_upper = None, None
+    if mode == "ATT" or mode == "ATE":
+        y0_cf_lower, y0_cf_upper = C_L, C_R
+    if mode == "ATC" or mode == "ATE":
+        y1_cf_lower, y1_cf_upper = C_L, C_R
 
     # Step 8: Get factual Y for target group
     Y_target = Y_target  # already selected earlier
@@ -136,8 +146,17 @@ def estimate_ite_interval(Z, X_new, user_ids=None, mode="ATT", alpha=0.1, quanti
     assert len(X_target) == len(Y_target), "Target group X and Y must match"
 
     # Step 9: Compute ITE CI
-    ite_lower = Y_target - y0_cf_upper
-    ite_upper = Y_target - y0_cf_lower
+    if mode == "ATT":
+        ite_lower = Y_target - y0_cf_upper
+        ite_upper = Y_target - y0_cf_lower
+    elif mode == "ATC":
+        ite_lower = y1_cf_lower - Y_target
+        ite_upper = y1_cf_upper - Y_target
+    elif mode == "ATE":
+        ite_lower = y1_cf_lower - y0_cf_upper
+        ite_upper = y1_cf_upper - y0_cf_lower
+    else:
+        raise ValueError("Unsupported mode for ITE computation")
 
     result = {
         "lower": ite_lower,
@@ -145,11 +164,22 @@ def estimate_ite_interval(Z, X_new, user_ids=None, mode="ATT", alpha=0.1, quanti
         "user_id": user_ids
     }
 
-    if mode in ["ATT", "ATE"]:
+    if mode == "ATT":
         result["y0_cf_lower"] = y0_cf_lower
         result["y0_cf_upper"] = y0_cf_upper
-    if mode in ["ATC", "ATE"]:
         result["y1_cf_lower"] = None
         result["y1_cf_upper"] = None
+    elif mode == "ATC":
+        result["y0_cf_lower"] = None
+        result["y0_cf_upper"] = None
+        result["y1_cf_lower"] = y1_cf_lower
+        result["y1_cf_upper"] = y1_cf_upper
+    elif mode == "ATE":
+        result["y0_cf_lower"] = y0_cf_lower
+        result["y0_cf_upper"] = y0_cf_upper
+        result["y1_cf_lower"] = y1_cf_lower
+        result["y1_cf_upper"] = y1_cf_upper
+
+    result["target_mask"] = T == 0 if mode == "ATC" else (T == 1 if mode == "ATT" else np.ones_like(T, dtype=bool))
 
     return result
