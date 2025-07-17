@@ -94,10 +94,18 @@ def estimate_ite_interval(Z, X_new, user_ids=None, mode="ATT", alpha=0.1, quanti
     if user_ids is not None:
         if len(user_ids) != len(X):
             raise ValueError(f"user_ids length ({len(user_ids)}) does not match total data samples ({len(X)})")
-        user_ids = user_ids[T == 1] if mode == "ATT" else (
-                   user_ids[T == 0] if mode == "ATC" else user_ids)
-        if len(user_ids) != len(X_target):
-            raise ValueError(f"Filtered user_ids length ({len(user_ids)}) does not match target samples ({len(X_target)})")
+        if mode == "ATT":
+            user_ids_target = user_ids[T == 1]
+        elif mode == "ATC":
+            user_ids_target = user_ids[T == 0]
+        elif mode == "ATE":
+            user_ids_target = user_ids
+        else:
+            raise ValueError("Unsupported mode for user_id handling")
+        if len(user_ids_target) != len(X_target):
+            raise ValueError(f"Filtered user_ids length ({len(user_ids_target)}) does not match target samples ({len(X_target)})")
+    else:
+        user_ids_target = None
 
     quantile_preds = np.column_stack([q_lo_pred, q_hi_pred])
 
@@ -128,10 +136,9 @@ def estimate_ite_interval(Z, X_new, user_ids=None, mode="ATT", alpha=0.1, quanti
     elif isinstance(C, (tuple, list)) and len(C) == 2:
         C_L, C_R = C
     else:
-        mid = (q_lo_pred + q_hi_pred) / 2.0
-        C_L = mid - C
-        C_R = mid + C
-
+        C_L = q_lo_pred - C
+        C_R = q_hi_pred + C
+    
     # Step 7: Construct CI for counterfactual outcome
     y0_cf_lower, y0_cf_upper = None, None
     y1_cf_lower, y1_cf_upper = None, None
@@ -161,7 +168,7 @@ def estimate_ite_interval(Z, X_new, user_ids=None, mode="ATT", alpha=0.1, quanti
     result = {
         "lower": ite_lower,
         "upper": ite_upper,
-        "user_id": user_ids
+        "user_id": user_ids_target
     }
 
     if mode == "ATT":
@@ -181,5 +188,7 @@ def estimate_ite_interval(Z, X_new, user_ids=None, mode="ATT", alpha=0.1, quanti
         result["y1_cf_upper"] = y1_cf_upper
 
     result["target_mask"] = T == 0 if mode == "ATC" else (T == 1 if mode == "ATT" else np.ones_like(T, dtype=bool))
+
+    result["user_ids_target"] = user_ids_target
 
     return result
